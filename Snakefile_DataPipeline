@@ -1,0 +1,325 @@
+
+"""
+Description: Run data pipeline, to be used downstream for data and training pipeline
+Author: Alexander G. Lucaci
+Version: 2024.1
+"""
+
+import os
+import sys
+import pandas as pd
+import numpy as np
+import json
+from glob import glob
+from tqdm import tqdm
+from Bio import SeqIO
+from Bio.Seq import Seq
+
+dataDirectory = os.path.join("data", "fasta")
+
+fastaFiles = glob(os.path.join(dataDirectory, "*.fas"))
+
+print( "# Found", len(fastaFiles), "number of FASTA files")
+
+with open("cluster.json", "r") as fh:
+  cluster = json.load(fh)
+#end with
+
+# Settings, these can be passed in or set in a config.json type file
+PPN = cluster["__default__"]["ppn"]
+
+standard_codons = [
+    "ATG", "ATA", "ATC", "ATT", "ATG", "ACA", "ACC", "ACG", "ACT", "AAC", "AAT",
+    "AAA", "AAG", "AGC", "AGT", "AGA", "AGG", "CTA", "CTC", "CTG", "CTT",
+    "CCA", "CCC", "CCG", "CCT", "CAC", "CAT", "CAA", "CAG", "CGA", "CGC",
+    "CGG", "CGT", "GTA", "GTC", "GTG", "GTT", "GCA", "GCC", "GCG", "GCT",
+    "GAC", "GAT", "GAA", "GAG", "GGA", "GGC", "GGG", "GGT", "TCA", "TCC",
+    "TCG", "TCT", "TTC", "TTT", "TTA", "TTG", "TAC", "TAT", "TAA", "TAG",
+    "TGC", "TGT", "TGA", "TGG"
+]
+
+standard_codons_noStop = [
+    "ATA", "ATC", "ATT", "ATG", "ACA", "ACC", "ACG", "ACT", "AAC", "AAT",
+    "AAA", "AAG", "AGC", "AGT", "AGA", "AGG", "CTA", "CTC", "CTG", "CTT",
+    "CCA", "CCC", "CCG", "CCT", "CAC", "CAT", "CAA", "CAG", "CGA", "CGC",
+    "CGG", "CGT", "GTA", "GTC", "GTG", "GTT", "GCA", "GCC", "GCG", "GCT",
+    "GAC", "GAT", "GAA", "GAG", "GGA", "GGC", "GGG", "GGT", "TCA", "TCC",
+    "TCG", "TCT", "TTC", "TTT", "TTA", "TTG", "TAC", "TAT", "TGC", "TGT",
+    "TGG"
+]
+
+rule all:
+    input:
+        #expand(os.path.join("results-dataframe", "{GENE}.dataframe.csv"), GENE=fastaBasenames),
+        os.path.join("results-dataframe", "SAML.dataframe.csv")
+    #end 
+#end rule all
+
+def extract_codons(sequence):
+    for i in range(0, len(sequence), 3):
+        codon = sequence[i:i+3]
+        if len(codon) == 3:  # Ensure it's a complete codon
+            yield codon
+
+def read_fasta(file_path):
+    with open(file_path, "r") as fasta_file:
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            yield record
+        # end for
+    # end with
+# end method
+
+def processFasta(fastaFile):
+    global standard_codons_noStop
+    print("Processing:", fastaFile)
+    
+    # init
+    _LocalDict = {}
+    for _ in standard_codons_noStop:
+        _LocalDict[_] = 0
+    # end for
+    
+    with open(fastaFile, "r") as fasta_file:
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            for i in range(0, len(record.seq), 3):
+                codon = record.seq[i:i+3]
+                if len(codon) == 3:  # Ensure it's a complete codon
+                    if codon != Seq('---'):
+                        _LocalDict[codon] += 1
+                    # end if
+                # end if
+            # end for
+        # end for
+    # end with
+    return _LocalDict
+# end method
+
+def processSequence(record):
+    global standard_codons_noStop
+    
+    # init - could process elsewhere and copy
+    _LocalDict = {}
+    for _ in standard_codons_noStop:
+        _LocalDict[_] = 0
+    # end for
+    
+    for i in range(0, len(record.seq), 3):
+        codon = record.seq[i:i+3]
+        if len(codon) == 3:  # Ensure it's a complete codon
+            if codon != Seq('---'):
+                _LocalDict[codon] += 1
+            # end if
+        # end if
+    # end for
+    return _LocalDict
+# end method
+
+def getFELData(json_file):
+    with open(json_file, "r") as in_d:
+        json_data = json.load(in_d)
+    return json_data["MLE"]["content"]["0"]
+#end method
+
+def getFELHeaders(json_file):
+    with open(json_file, "r") as in_d:
+        json_data = json.load(in_d)
+    return json_data["MLE"]["headers"]
+#end method
+
+def read_fasta(file_path):
+    sequences = []
+    with open(file_path, "r") as fasta_file:
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            sequences.append(str(record.seq))
+    return sequences
+    
+def processColumn(sequence):
+    global standard_codons_noStop
+    
+    # init - could process elsewhere and copy
+    _LocalDict = {}
+    for _ in standard_codons_noStop:
+        _LocalDict[_] = 0
+    # end for
+    
+    sequence = "".join(sequence)
+    
+    for i in range(0, len(sequence), 3):
+        codon = sequence[i:i+3]
+        if len(codon) == 3:  # Ensure it's a complete codon
+            if codon != '---':
+                _LocalDict[codon] += 1
+            # end if
+        # end if
+    # end for
+    return _LocalDict
+# end method
+     
+def loop_over_codon_columns(sequences):
+    if not sequences:
+        return
+    # end if
+    
+    # Assuming all sequences are of the same length
+    seq_length = len(sequences[0])
+    
+    # Ensure the sequence length is a multiple of 3 for complete codons
+    assert seq_length % 3 == 0, "Sequences must be a multiple of 3 in length for complete codons"
+    
+    for col in range(0, seq_length, 3):
+        codon_column = [seq[col:col+3] for seq in sequences]
+        #yield codon_column
+        # Now that I have the column, analyse it
+        _ = processColumn(codon_column)
+        
+# end method
+
+def processHyPhyFELJson(site, fileName):
+    HyPhyJSON = os.path.join("results", fileName + ".FEL.json")
+    #print("# PROCESSING -", HyPhyJSON, "in Codon Site:", site)
+    columns = getFELHeaders(HyPhyJSON)
+    headers = [x[0] for x in columns]
+    data = getFELData(HyPhyJSON)
+    df = pd.DataFrame(data, columns=headers, dtype = float)
+    return df.at[site, "dN/dS MLE"]
+# end method
+        
+rule dataWorkflow:
+    input:
+        input = fastaFiles
+    output:
+        output = os.path.join("results-dataframe", "SAML.dataframe.csv")
+    run:
+        #print(len(input.input), ": File as input")
+        fastaBasenames = [os.path.basename(x) for x in input.input]
+        dataDict = {}
+        count = 1
+        
+        for file in tqdm(input.input):
+            sequences = read_fasta(file)
+            seq_length = len(sequences[0])
+            for col in range(0, seq_length, 3):
+                codon_column = [seq[col:col+3] for seq in sequences]
+                dataDict[count] = processColumn(codon_column)
+                #dataDict[count].update({"EvolutionaryRate": 0})
+                #dataDict[count].update({"Filename": os.path.basename(file)})
+                codonSite = int(col/3)
+                #dataDict[count].update({"CodonSite": codonSite})
+                
+                evolutionaryRate = processHyPhyFELJson(codonSite, os.path.basename(file))
+                #dataDict[count].update({"EvolutionaryRate": evolutionaryRate})
+                dataDict[count].update({"Label": evolutionaryRate})
+                
+                count += 1
+        
+            #with open(file, "r") as fasta_file:
+            #    for record in SeqIO.parse(file, "fasta"):
+            #        dataDict[count] = processSequence(record)
+            #        dataDict[count].update({"EvolutionaryRate": 0})
+            #        dataDict[count].update({"Filename": os.path.basename(file)})
+            #        count += 1
+            #    # end for
+            # end with
+        # end for
+
+        df = pd.DataFrame.from_dict(dataDict, orient='index')
+        
+        ## Saving DataFrame to CSV
+        df.to_csv(output.output, index=False)
+    #end shell
+#end rule
+        
+        
+    
+"""
+rule dataWorkflow:
+    input:
+        input = fastaFiles
+    output:
+        output = os.path.join("results-dataframe", "SAML.dataframe.csv")
+    run:
+        print(len(input.input), ": File as input")
+        fastaBasenames = [os.path.basename(x) for x in input.input]
+        dataDict = {}
+        count = 1
+        
+        for file in tqdm(input.input[:10]):
+            with open(file, "r") as fasta_file:
+                for record in SeqIO.parse(file, "fasta"):
+                    dataDict[count] = processSequence(record)
+                    dataDict[count].update({"EvolutionaryRate": 0})
+                    dataDict[count].update({"Filename": os.path.basename(file)})
+                    count += 1
+                # end for
+            # end with
+        # end for
+
+        df = pd.DataFrame.from_dict(dataDict, orient='index')
+        
+        ## Saving DataFrame to CSV
+        df.to_csv(output.output, index=False)
+    #end shell
+#end rule
+"""
+     
+     
+"""
+rule dataWorkflow:
+    input:
+        input = fastaFiles
+    output:
+        output = os.path.join("results-dataframe", "SAML.dataframe.csv")
+    run:
+        print(len(input.input), ": File as input")
+        fastaBasenames = [os.path.basename(x) for x in input.input]
+        dataDict = {}
+        count = 1
+        
+        for file in tqdm(input.input[:10]):
+            dataDict[count] = processFasta(file)
+            evolutionaryRate = processHyPhyFELJson(os.path.basename(file))
+            dataDict[count].update({"EvolutionaryRate": 0})
+            count += 1
+        # end for
+
+        df = pd.DataFrame.from_dict(dataDict, orient='index')
+        ## Saving DataFrame to CSV
+        df.to_csv(output.output, index=False)
+    #end shell
+#end rule
+
+
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# END OF FILE -----------------------------------------------------------------
+
+"""
+rule dataWorkflow:
+    input:
+        input = os.path.join(dataDirectory, "{GENE}")
+    output:
+        output = os.path.join("results-dataframe", "{GENE}.dataframe.csv")
+    run:
+        print(len(input.input), ": File as input")
+        #dataDict = {}
+        #dataDict["0"] = 1
+        #df = pd.DataFrame(data)
+        ## Saving DataFrame to CSV
+        #df.to_csv(output.output, index=False)
+    #end shell
+#end rule
+"""
+

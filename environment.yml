@@ -1,0 +1,15 @@
+name: SAML
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - biopython=1.83
+  - hyphy=2.5.60
+  - fasttree=2.1.11
+  - snakemake=7.32.4
+  - python=3.8
+  - tqdm
+
+# conda env create -f environment.yml

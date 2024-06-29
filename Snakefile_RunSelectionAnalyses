@@ -1,0 +1,56 @@
+"""
+Description: Run selection analyses on Enard dataset, to be used downstream for data and training pipeline
+Author: Alexander G. Lucaci
+Version: 2024.1
+"""
+
+import os
+import sys
+import pandas as pd
+import numpy as np
+import json
+from glob import glob
+#from tqdm import tqdm
+
+dataDirectory = os.path.join("data", "fasta")
+
+fastas = glob(os.path.join(dataDirectory, "*.fas"))
+fastas_basenames = [os.path.basename(x) for x in fastas]
+
+print( "# Found", len(fastas), "number of FASTA files")
+
+with open("cluster.json", "r") as fh:
+  cluster = json.load(fh)
+#end with
+
+# Settings, these can be passed in or set in a config.json type file
+PPN = cluster["__default__"]["ppn"] 
+
+rule all:
+    input:
+        expand(os.path.join("results", "{GENE}.FastTree"), GENE = fastas_basenames),
+        expand(os.path.join("results", "{GENE}.FEL.json"), GENE = fastas_basenames)
+    #end inpt
+#end rule all
+
+rule fasttree:
+    input:
+        input = os.path.join(dataDirectory, "{GENE}")
+    output:
+        output = os.path.join("results", "{GENE}.FastTree")
+    shell:
+        "FastTree -nt -gtr -gamma {input.input} > {output.output}"
+    #end shell
+#end rule
+
+rule fel:
+    input:
+        msa = os.path.join(dataDirectory, "{GENE}"),
+        tree = rules.fasttree.output.output
+    output:
+        output = os.path.join("results", "{GENE}.FEL.json")
+    shell:
+        # mpirun -np {PPN} --mca btl openib,self 
+        "HYPHYMPI fel --alignment {input.msa} --tree {input.tree} --ci Yes --output {output.output} ENV='TOLERATE_NUMERICAL_ERRORS=1;'"
+    #end shell
+#end rule
